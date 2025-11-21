@@ -31,6 +31,7 @@ def check_dependencies():
         "redis",
         "redisvl",
         "skyflow",
+        "pypdf",
         "pydantic",
         "loguru",
         "httpx",
@@ -62,7 +63,6 @@ def check_env_file():
 
         required_keys = [
             "ANTHROPIC_API_KEY",
-            "SKYFLOW_VAULT_ID",
             "PARALLEL_AI_API_KEY",
         ]
 
@@ -75,7 +75,14 @@ def check_env_file():
             print(f"  ⚠️  Missing or placeholder values for: {', '.join(missing)}")
             return False
         else:
-            print("  ✓ All API keys configured")
+            print("  ✓ All required API keys configured")
+
+            # Check optional Skyflow
+            if "SKYFLOW_VAULT_ID" in content and not content.startswith("#"):
+                print("  ✓ Skyflow configured (optional)")
+            else:
+                print("  ℹ️  Skyflow not configured (will use regex fallback)")
+
             return True
     else:
         print("❌ .env file not found")

@@ -3,19 +3,18 @@ Base agent capabilities using composition pattern
 No inheritance chains - agents compose capabilities as needed
 """
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from abc import ABC, abstractmethod
 from anthropic import Anthropic
 from loguru import logger
 from config import settings
 from services.redis_service import RedisService
-from services.parallel_service import ParallelService
 
 
 class ResearchCapability:
-    """Mixin for web research functionality via Parallel.ai"""
+    """Mixin for web research functionality via Parallel.ai or fallback service"""
 
-    def __init__(self, parallel_service: ParallelService):
+    def __init__(self, parallel_service: Any):  # Accepts ParallelService or FallbackResearchService
         self.parallel_service = parallel_service
 
     async def research_web(
@@ -114,7 +113,7 @@ class BaseAgent(ABC):
         agent_id: Optional[str] = None,
         anthropic_client: Optional[Anthropic] = None,
         redis_service: Optional[RedisService] = None,
-        parallel_service: Optional[ParallelService] = None,
+        parallel_service: Optional[Any] = None,  # Accepts ParallelService or FallbackResearchService
     ):
         self.agent_id = agent_id or f"agent_{uuid.uuid4().hex[:8]}"
         self.anthropic_client = anthropic_client or Anthropic(api_key=settings.anthropic_api_key)

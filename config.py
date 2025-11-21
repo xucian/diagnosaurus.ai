@@ -14,10 +14,17 @@ class Settings(BaseSettings):
 
     # API Keys
     anthropic_api_key: str = Field(..., env="ANTHROPIC_API_KEY")
-    skyflow_vault_id: str = Field(..., env="SKYFLOW_VAULT_ID")
-    skyflow_vault_url: str = Field(..., env="SKYFLOW_VAULT_URL")
-    skyflow_api_key: str = Field(..., env="SKYFLOW_API_KEY")
+    skyflow_vault_id: Optional[str] = Field(default=None, env="SKYFLOW_VAULT_ID")
+    skyflow_vault_url: Optional[str] = Field(default=None, env="SKYFLOW_VAULT_URL")
+    skyflow_api_key: Optional[str] = Field(default=None, env="SKYFLOW_API_KEY")
     parallel_ai_api_key: str = Field(..., env="PARALLEL_AI_API_KEY")
+    lightpanda_api_key: Optional[str] = Field(default=None, env="LIGHTPANDA_API_KEY")
+
+    # Research Configuration
+    use_fallback_research: bool = Field(default=False, env="USE_FALLBACK_RESEARCH",
+                                       description="Use DuckDuckGo + Lightpanda/Chrome instead of Parallel.ai")
+    fallback_browser: str = Field(default="lightpanda", env="FALLBACK_BROWSER",
+                                 description="Browser for scraping: 'lightpanda' or 'chrome'")
 
     # Redis Configuration
     redis_host: str = Field(default="localhost", env="REDIS_HOST")
@@ -94,6 +101,14 @@ class Settings(BaseSettings):
         if not 0 <= v <= 1:
             raise ValueError("Probability must be between 0 and 1")
         return v
+
+    @validator("fallback_browser")
+    def validate_fallback_browser(cls, v):
+        """Ensure fallback_browser is either 'lightpanda' or 'chrome'"""
+        allowed = ["lightpanda", "chrome"]
+        if v.lower() not in allowed:
+            raise ValueError(f"fallback_browser must be one of {allowed}, got: {v}")
+        return v.lower()
 
     class Config:
         env_file = ".env"

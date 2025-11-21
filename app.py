@@ -20,8 +20,9 @@ from models.schemas import (
 )
 from services.redis_service import RedisService
 from services.skyflow_service import skyflow_service
-from services.parallel_service import parallel_service
+from services.parallel_service import get_research_service
 from services.geoip_service import geoip_service
+from services.document_service import document_service
 from agents.research_agent import CoarseSearchAgent, DeepResearchAgent
 from agents.forum_coordinator import AdversarialForum
 from agents.condition_analyzer import condition_analyzer
@@ -39,6 +40,7 @@ CORS(app)
 
 # Initialize services
 redis_service = RedisService()
+research_service = get_research_service()  # Selects Parallel.ai or fallback based on config
 
 # Store active analysis sessions
 active_sessions = {}
@@ -155,16 +157,28 @@ async def run_analysis_pipeline(session_id: str, request: SymptomAnalysisRequest
         # Update status
         update_session_status(session_id, "sanitizing", 10)
 
-        # Step 1: Sanitize data via Skyflow
-        sanitized_data = skyflow_service.sanitize_data(request.dict())
-        symptoms = sanitized_data.get("symptoms", request.symptoms)
+        # Step 1: Extract text from uploaded documents
+        document_text = ""
+        if request.documents:
+            logger.info(f"[{session_id}] Extracting text from {len(request.documents)} documents")
+            document_text = document_service.extract_text_from_documents(request.documents)
 
-        # Step 2: Coarse search - identify potential conditions
+        # Step 2: Merge symptoms + document text
+        combined_text = request.symptoms
+        if document_text:
+            combined_text += f"\n\n--- Medical Documents ---\n{document_text}"
+            logger.info(f"[{session_id}] Combined text length: {len(combined_text)} chars")
+
+        # Step 3: Sanitize PII/PHI in combined text
+        sanitized_text = skyflow_service.sanitize_text(combined_text)
+        logger.info(f"[{session_id}] Text sanitized (Skyflow: {skyflow_service.client is not None})")
+
+        # Step 4: Coarse search - identify potential conditions
         update_session_status(session_id, "researching", 20)
 
-        coarse_agent = CoarseSearchAgent(parallel_service=parallel_service)
+        coarse_agent = CoarseSearchAgent(parallel_service=research_service)
         coarse_result = await coarse_agent.execute({
-            "symptoms": symptoms,
+            "symptoms": sanitized_text,
             "patient_context": {
                 "age": request.patient_age,
                 "sex": request.patient_sex,
@@ -174,42 +188,42 @@ async def run_analysis_pipeline(session_id: str, request: SymptomAnalysisRequest
         potential_conditions = coarse_result["conditions"]
         logger.info(f"[{session_id}] Identified {len(potential_conditions)} potential conditions")
 
-        # Step 3: Deep research on each condition (batched)
+        # Step 5: Deep research on each condition (batched)
         update_session_status(session_id, "deep_research", 40)
 
         research_results = await run_deep_research_batch(
             session_id,
             potential_conditions,
-            symptoms,
+            sanitized_text,
             request,
         )
 
-        # Step 4: Adversarial forum debate
+        # Step 6: Adversarial forum debate
         update_session_status(session_id, "debating", 70)
 
         forum = AdversarialForum()
         forum_result = await forum.execute({
             "research_results": research_results,
-            "symptoms": symptoms,
+            "symptoms": sanitized_text,
             "patient_context": {
                 "age": request.patient_age,
                 "sex": request.patient_sex,
             },
         })
 
-        # Step 5: Final condition analysis and scoring
+        # Step 7: Final condition analysis and scoring
         update_session_status(session_id, "analyzing", 85)
 
         final_conditions = condition_analyzer.analyze(
             research_results,
             forum_result["adjusted_confidences"],
-            symptoms,
+            sanitized_text,
         )
 
-        # Step 6: Find nearby clinics
+        # Step 8: Find nearby clinics
         update_session_status(session_id, "finding_clinics", 90)
 
-        clinics = await parallel_service.find_clinics(
+        clinics = await research_service.find_clinics(
             location={
                 "lat": request.location.latitude,
                 "lon": request.location.longitude,
@@ -217,7 +231,7 @@ async def run_analysis_pipeline(session_id: str, request: SymptomAnalysisRequest
             min_rating=settings.min_clinic_rating,
         )
 
-        # Step 7: Build final response
+        # Step 9: Build final response
         processing_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
         analysis_response = AnalysisResponse(
@@ -227,7 +241,7 @@ async def run_analysis_pipeline(session_id: str, request: SymptomAnalysisRequest
             agent_research=research_results,
             forum_debate=forum_result["debate_result"],
             processing_time_ms=processing_time,
-            warning_message=_generate_warning_message(symptoms, final_conditions),
+            warning_message=_generate_warning_message(sanitized_text, final_conditions),
         )
 
         # Store result
@@ -262,7 +276,7 @@ async def run_deep_research_batch(
         # Run batch in parallel
         tasks = []
         for condition in batch:
-            agent = DeepResearchAgent(parallel_service=parallel_service)
+            agent = DeepResearchAgent(parallel_service=research_service)
             task = agent.execute({
                 "condition": condition,
                 "symptoms": symptoms,

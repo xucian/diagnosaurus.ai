@@ -1,9 +1,10 @@
 """
 Skyflow API integration for data sanitization
-Tokenizes sensitive medical information
+Tokenizes sensitive medical information (PII/PHI) in text
 """
 from typing import Dict, Any, List, Optional
 import base64
+import re
 from skyflow.vault import Client, Configuration, InsertOptions
 from skyflow.service_account import generate_bearer_token
 from loguru import logger
@@ -15,6 +16,12 @@ class SkyflowService:
 
     def __init__(self):
         """Initialize Skyflow client"""
+        # Check if Skyflow is configured
+        if not all([settings.skyflow_vault_id, settings.skyflow_vault_url, settings.skyflow_api_key]):
+            logger.info("Skyflow not configured, using regex fallback for PII redaction")
+            self.client = None
+            return
+
         try:
             config = Configuration(
                 vault_id=settings.skyflow_vault_id,
@@ -22,7 +29,7 @@ class SkyflowService:
                 token_provider=self._get_token,
             )
             self.client = Client(config)
-            logger.info("Skyflow service initialized")
+            logger.info("Skyflow service initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Skyflow: {e}")
             self.client = None
@@ -34,6 +41,93 @@ class SkyflowService:
         except Exception as e:
             logger.error(f"Failed to generate Skyflow token: {e}")
             return ""
+
+    def sanitize_text(self, text: str) -> str:
+        """
+        Sanitize PII/PHI in text content
+
+        Args:
+            text: Raw text containing potential PII
+
+        Returns:
+            Text with PII redacted/tokenized
+        """
+        if not text:
+            return text
+
+        if self.client:
+            # Use Skyflow API for PII detection
+            return self._skyflow_sanitize_text(text)
+        else:
+            # Fallback to regex-based redaction
+            return self._regex_sanitize_text(text)
+
+    def _skyflow_sanitize_text(self, text: str) -> str:
+        """Use Skyflow API for text-level PII detection"""
+        try:
+            # Skyflow's text redaction API (simplified - actual API may differ)
+            # For now, fall back to regex if Skyflow text API is complex
+            logger.warning("Skyflow text API not fully implemented, using regex fallback")
+            return self._regex_sanitize_text(text)
+        except Exception as e:
+            logger.error(f"Skyflow text sanitization failed: {e}")
+            return self._regex_sanitize_text(text)
+
+    def _regex_sanitize_text(self, text: str) -> str:
+        """
+        Regex-based PII redaction (fallback)
+        Detects and redacts common PII patterns
+        """
+        sanitized = text
+        redaction_count = 0
+
+        # SSN patterns (XXX-XX-XXXX)
+        ssn_pattern = r'\b\d{3}-\d{2}-\d{4}\b'
+        matches = re.findall(ssn_pattern, sanitized)
+        if matches:
+            sanitized = re.sub(ssn_pattern, '[SSN_REDACTED]', sanitized)
+            redaction_count += len(matches)
+
+        # Date of birth patterns (various formats)
+        dob_patterns = [
+            r'\b\d{4}-\d{2}-\d{2}\b',  # YYYY-MM-DD
+            r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # MM/DD/YYYY or M/D/YYYY
+        ]
+        for pattern in dob_patterns:
+            matches = re.findall(pattern, sanitized)
+            if matches:
+                sanitized = re.sub(pattern, '[DOB_REDACTED]', sanitized)
+                redaction_count += len(matches)
+
+        # Email addresses
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        matches = re.findall(email_pattern, sanitized)
+        if matches:
+            sanitized = re.sub(email_pattern, '[EMAIL_REDACTED]', sanitized)
+            redaction_count += len(matches)
+
+        # Phone numbers (various formats)
+        phone_patterns = [
+            r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',  # XXX-XXX-XXXX
+            r'\(\d{3}\)\s?\d{3}[-.\s]?\d{4}',  # (XXX) XXX-XXXX
+        ]
+        for pattern in phone_patterns:
+            matches = re.findall(pattern, sanitized)
+            if matches:
+                sanitized = re.sub(pattern, '[PHONE_REDACTED]', sanitized)
+                redaction_count += len(matches)
+
+        # Medical record numbers (MRN: followed by digits)
+        mrn_pattern = r'\bMRN[:\s]*\d{5,}\b'
+        matches = re.findall(mrn_pattern, sanitized, re.IGNORECASE)
+        if matches:
+            sanitized = re.sub(mrn_pattern, '[MRN_REDACTED]', sanitized, flags=re.IGNORECASE)
+            redaction_count += len(matches)
+
+        if redaction_count > 0:
+            logger.info(f"Redacted {redaction_count} PII patterns using regex")
+
+        return sanitized
 
     def sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """

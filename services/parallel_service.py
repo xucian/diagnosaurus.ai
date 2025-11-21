@@ -245,3 +245,23 @@ class ParallelService:
 
 # Global instance
 parallel_service = ParallelService()
+
+
+def get_research_service():
+    """
+    Factory function to get the appropriate research service based on configuration
+
+    Returns:
+        ParallelService or FallbackResearchService based on USE_FALLBACK_RESEARCH setting
+    """
+    if settings.use_fallback_research:
+        from .fallback_research_service import FallbackResearchService
+        browser = settings.fallback_browser
+        logger.info(f"Using fallback research service (DuckDuckGo + {browser.capitalize()})")
+        return FallbackResearchService(
+            lightpanda_api_key=settings.lightpanda_api_key,
+            browser=browser
+        )
+    else:
+        logger.info("Using Parallel.ai research service")
+        return parallel_service
