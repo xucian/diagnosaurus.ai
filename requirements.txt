@@ -1,0 +1,45 @@
+# Diagnosaurus.ai Dependencies
+
+# Web Framework
+flask==3.0.0
+flask-cors==4.0.0
+
+# Anthropic & MCP
+anthropic==0.39.0
+mcp==1.0.0
+
+# Redis & Caching
+redis==5.0.1
+redisvl==0.3.2
+
+# Skyflow SDK
+skyflow==1.17.0
+
+# Data Validation & Settings
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# HTTP Requests
+httpx==0.25.2
+requests==2.31.0
+
+# Logging
+loguru==0.7.2
+
+# Data Processing
+python-multipart==0.0.6
+python-magic==0.4.27
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Utilities
+uuid==1.30
+tenacity==8.2.3
+
+# Development Tools (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.12.1
+flake8==6.1.0
+mypy==1.7.1

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis/redis-stack:latest
+    container_name: diagnosaurus-redis
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight UI (optional, for debugging)
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+
+volumes:
+  redis-data:

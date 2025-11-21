@@ -1,0 +1,44 @@
+{
+  "default": {
+    "city": "San Francisco",
+    "country": "United States",
+    "latitude": 37.7749,
+    "longitude": -122.4194
+  },
+  "127.0.0.1": {
+    "city": "San Francisco",
+    "country": "United States",
+    "latitude": 37.7749,
+    "longitude": -122.4194
+  },
+  "8.8.8.8": {
+    "city": "Mountain View",
+    "country": "United States",
+    "latitude": 37.4056,
+    "longitude": -122.0775
+  },
+  "1.1.1.1": {
+    "city": "San Francisco",
+    "country": "United States",
+    "latitude": 37.7749,
+    "longitude": -122.4194
+  },
+  "192.168": {
+    "city": "San Francisco",
+    "country": "United States",
+    "latitude": 37.7749,
+    "longitude": -122.4194
+  },
+  "10.0": {
+    "city": "New York",
+    "country": "United States",
+    "latitude": 40.7128,
+    "longitude": -74.0060
+  },
+  "172.16": {
+    "city": "Los Angeles",
+    "country": "United States",
+    "latitude": 34.0522,
+    "longitude": -118.2437
+  }
+}
