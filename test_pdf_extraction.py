@@ -6,74 +6,22 @@ Tests document_service.py PDF parsing functionality
 """
 import sys
 import base64
+from pathlib import Path
 from services.document_service import document_service
 
 
-def create_test_pdf() -> str:
+def load_test_pdf() -> str:
     """
-    Create minimal valid PDF with text
+    Load real test PDF file
     Returns base64 encoded PDF
     """
-    # Minimal PDF with text content
-    # Note: Real PDFs are complex; this is simplified but valid
-    pdf_content = b"""%PDF-1.4
-1 0 obj
-<<
-/Type /Catalog
-/Pages 2 0 R
->>
-endobj
-2 0 obj
-<<
-/Type /Pages
-/Kids [3 0 R]
-/Count 1
->>
-endobj
-3 0 obj
-<<
-/Type /Page
-/Parent 2 0 R
-/MediaBox [0 0 612 792]
-/Contents 4 0 R
-/Resources <<
-/Font <<
-/F1 <<
-/Type /Font
-/Subtype /Type1
-/BaseFont /Helvetica
->>
->>
->>
->>
-endobj
-4 0 obj
-<<
-/Length 55
->>
-stream
-BT
-/F1 12 Tf
-100 700 Td
-(Patient: Test Data) Tj
-ET
-endstream
-endobj
-xref
-0 5
-0000000000 65535 f
-0000000009 00000 n
-0000000058 00000 n
-0000000115 00000 n
-0000000317 00000 n
-trailer
-<<
-/Size 5
-/Root 1 0 R
->>
-startxref
-420
-%%EOF"""
+    pdf_path = Path(__file__).parent / "test_blood_report.pdf"
+
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"Test PDF not found: {pdf_path}")
+
+    with open(pdf_path, 'rb') as f:
+        pdf_content = f.read()
 
     return base64.b64encode(pdf_content).decode('utf-8')
 
@@ -84,8 +32,8 @@ def test_basic_extraction():
     print("Testing PDF Text Extraction")
     print("=" * 60)
 
-    # Create test PDF
-    pdf_base64 = create_test_pdf()
+    # Load test PDF
+    pdf_base64 = load_test_pdf()
 
     print("\n1. Basic extraction")
     text = document_service.extract_text_from_pdf(pdf_base64)
@@ -104,8 +52,8 @@ def test_multiple_documents():
 
     print("\n2. Multiple documents")
 
-    pdf1 = create_test_pdf()
-    pdf2 = create_test_pdf()  # Same content for simplicity
+    pdf1 = load_test_pdf()
+    pdf2 = load_test_pdf()  # Same content for simplicity
 
     combined = document_service.extract_text_from_documents([pdf1, pdf2])
 
@@ -153,8 +101,8 @@ def test_real_world_simulation():
 
     print("\n5. Real-world simulation")
 
-    # Simulate uploaded blood work PDF
-    pdf = create_test_pdf()
+    # Load real blood report PDF
+    pdf = load_test_pdf()
 
     # Extract
     doc_text = document_service.extract_text_from_documents([pdf])

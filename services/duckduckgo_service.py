@@ -2,18 +2,29 @@
 DuckDuckGo search service for fallback medical research
 """
 from typing import List, Dict, Any, Optional
-import httpx
+import asyncio
+import time
+from duckduckgo_search import DDGS
 from loguru import logger
 
 
 class DuckDuckGoService:
-    """DuckDuckGo search service using their instant answer API"""
+    """DuckDuckGo search service using duckduckgo-search library"""
 
     def __init__(self):
         """Initialize DuckDuckGo service"""
-        self.base_url = "https://api.duckduckgo.com/"
-        self.client = httpx.AsyncClient(timeout=10.0)
         logger.info("DuckDuckGo service initialized")
+        self._last_request_time = 0
+        self._min_request_interval = 2.0  # Minimum seconds between requests
+
+    async def _rate_limit_delay(self):
+        """Ensure minimum time between requests"""
+        current_time = time.time()
+        time_since_last = current_time - self._last_request_time
+        if time_since_last < self._min_request_interval:
+            delay = self._min_request_interval - time_since_last
+            await asyncio.sleep(delay)
+        self._last_request_time = time.time()
 
     async def search(
         self,
@@ -21,61 +32,45 @@ class DuckDuckGoService:
         max_results: int = 10,
     ) -> List[Dict[str, Any]]:
         """
-        Search using DuckDuckGo instant answer API
+        Search using DuckDuckGo web search (fail fast on errors)
 
         Args:
             query: Search query
             max_results: Maximum number of results to return
 
         Returns:
-            List of search results with title, url, and snippet
+            List of search results with title, url, and snippet (empty list on error)
         """
         try:
-            params = {
-                "q": query,
-                "format": "json",
-                "no_html": 1,
-                "skip_disambig": 1,
-            }
+            # Rate limit our requests
+            await self._rate_limit_delay()
 
-            response = await self.client.get(self.base_url, params=params)
-            response.raise_for_status()
+            # Use text search with asyncio (run sync method in thread pool)
+            # Create new DDGS instance per request to avoid state issues
+            results_raw = await asyncio.to_thread(
+                lambda: list(DDGS().text(query, max_results=max_results))
+            )
 
-            data = response.json()
+            # Convert to our format
             results = []
-
-            # Extract related topics (most useful for medical queries)
-            related_topics = data.get("RelatedTopics", [])
-
-            for item in related_topics[:max_results]:
-                # Skip topic headers
-                if "Topics" in item:
-                    continue
-
-                if "FirstURL" in item and "Text" in item:
-                    result = {
-                        "title": item.get("Text", "").split(" - ")[0],
-                        "url": item.get("FirstURL", ""),
-                        "snippet": item.get("Text", ""),
-                    }
-                    results.append(result)
-
-            # If we didn't get enough from related topics, try abstract
-            if len(results) < 3 and data.get("AbstractURL"):
-                results.insert(0, {
-                    "title": data.get("Heading", query),
-                    "url": data.get("AbstractURL", ""),
-                    "snippet": data.get("Abstract", ""),
-                })
+            for item in results_raw:
+                result = {
+                    "title": item.get("title", ""),
+                    "url": item.get("href", ""),
+                    "snippet": item.get("body", ""),
+                }
+                results.append(result)
 
             logger.info(f"DuckDuckGo found {len(results)} results for: {query}")
             return results
 
-        except httpx.HTTPError as e:
-            logger.error(f"DuckDuckGo search failed: {e}")
-            return []
         except Exception as e:
-            logger.error(f"DuckDuckGo unexpected error: {e}")
+            # Fail gracefully without blocking - just log and return empty
+            error_str = str(e)
+            if "Ratelimit" in error_str or "403" in error_str or "202" in error_str:
+                logger.warning(f"DuckDuckGo rate limited - skipping search")
+            else:
+                logger.warning(f"DuckDuckGo search failed: {e}")
             return []
 
     async def search_medical(
@@ -93,10 +88,11 @@ class DuckDuckGoService:
         Returns:
             List of search results
         """
-        # Enhance query for medical results
-        medical_query = f"{query} site:mayoclinic.org OR site:nih.gov OR site:medlineplus.gov"
+        # Add medical context but skip site restrictions to avoid rate limiting
+        # DuckDuckGo will naturally prioritize authoritative medical sources
+        medical_query = f"{query} medical symptoms causes treatment"
         return await self.search(medical_query, max_results)
 
     async def close(self):
-        """Close HTTP client"""
-        await self.client.aclose()
+        """Close async client"""
+        pass  # AsyncDDGS handles cleanup automatically

@@ -48,7 +48,7 @@ mkdir -p uploads data
 touch uploads/.gitkeep
 
 # Start Redis
-echo "Starting Redis..."
+echo "Starting Redis (will also start it during _dev.sh, but doing it here to do the heavy lifting first associated with the initial start)..."
 docker-compose up -d
 sleep 2
 

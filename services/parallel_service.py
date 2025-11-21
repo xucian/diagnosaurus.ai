@@ -2,27 +2,35 @@
 Parallel.ai MCP integration for medical research and clinic discovery
 """
 from typing import List, Dict, Any, Optional
-import httpx
 from loguru import logger
 from config import settings
 from models.schemas import ClinicResult
+
+try:
+    from parallel import Parallel
+    PARALLEL_AVAILABLE = True
+except ImportError:
+    PARALLEL_AVAILABLE = False
+    logger.warning("Parallel SDK not installed - run: pip install parallel-ai-sdk")
 
 
 class ParallelService:
     """Parallel.ai research and search service"""
 
     def __init__(self):
-        """Initialize Parallel.ai MCP client"""
+        """Initialize Parallel.ai client"""
         self.api_key = settings.parallel_ai_api_key
-        self.base_url = "https://api.parallel.ai/v1"
-        self.client = httpx.AsyncClient(
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
-        logger.info("Parallel.ai service initialized")
+
+        if not PARALLEL_AVAILABLE:
+            logger.error("Parallel SDK not available - searches will fail")
+            self.client = None
+        else:
+            try:
+                self.client = Parallel(api_key=self.api_key)
+                logger.info("Parallel.ai service initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize Parallel client: {e}")
+                self.client = None
 
     async def search_medical(
         self,
@@ -35,31 +43,44 @@ class ParallelService:
 
         Args:
             query: Search query (e.g., "symptoms of iron deficiency anemia")
-            sources: Specific sources to search (e.g., ["pubmed", "mayo_clinic"])
+            sources: Ignored (kept for API compatibility)
             max_results: Maximum number of results
 
         Returns:
             List of search results with content and citations
         """
+        if not self.client:
+            logger.warning("Parallel.ai client not available - returning empty results")
+            return []
+
         try:
-            payload = {
-                "query": query,
-                "sources": sources or ["medical", "pubmed", "nih", "mayo_clinic"],
-                "max_results": max_results,
-                "include_citations": True,
-            }
-
-            response = await self.client.post(
-                f"{self.base_url}/search/medical",
-                json=payload,
+            # Use Parallel SDK's beta.search API
+            response = self.client.beta.search(
+                mode="one-shot",
+                max_results=max_results,
+                objective=query
             )
-            response.raise_for_status()
 
-            results = response.json().get("results", [])
+            # Convert Parallel response format to our internal format
+            results = []
+            for item in response.results:
+                # Join excerpts into content
+                content = "\n\n".join(item.excerpts) if item.excerpts else ""
+
+                result = {
+                    "title": item.title,
+                    "url": item.url,
+                    "citation": item.url,
+                    "content": content,
+                    "snippet": content[:500] if content else "",
+                    "publish_date": getattr(item, 'publish_date', None),
+                }
+                results.append(result)
+
             logger.info(f"Found {len(results)} medical search results for: {query}")
             return results
 
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.error(f"Parallel.ai medical search failed: {e}")
             return []
 
@@ -82,39 +103,37 @@ class ParallelService:
         Returns:
             List of ClinicResult objects
         """
+        if not self.client:
+            logger.warning("Parallel.ai client not available - returning empty results")
+            return []
+
         try:
-            payload = {
-                "location": location,
-                "query": f"{specialty or 'medical'} clinic",
-                "radius_km": max_distance_km,
-                "min_rating": min_rating,
-                "limit": settings.max_clinics,
-                "include_reviews": True,
-            }
+            # Use Parallel search to find clinics
+            query = f"{specialty or 'medical'} clinic near {location['lat']},{location['lon']} within {max_distance_km}km rating above {min_rating}"
 
-            response = await self.client.post(
-                f"{self.base_url}/search/places",
-                json=payload,
+            response = self.client.beta.search(
+                mode="one-shot",
+                max_results=settings.max_clinics,
+                objective=query
             )
-            response.raise_for_status()
 
-            places = response.json().get("places", [])
+            # Parse results into ClinicResult format
             clinics = []
-
-            for place in places:
+            for item in response.results:
                 try:
+                    # Extract clinic info from search results
                     clinic = ClinicResult(
-                        name=place.get("name"),
-                        doctor_name=self._extract_doctor_name(place),
+                        name=item.title,
+                        doctor_name="Dr. Staff",  # Default
                         specialty=specialty or "General Medicine",
-                        rating=place.get("rating", 0.0),
-                        review_count=place.get("review_count", 0),
-                        phone=place.get("phone", "N/A"),
-                        address=place.get("address", ""),
-                        distance_km=place.get("distance_km", 0.0),
-                        accepts_new_patients=place.get("accepts_new_patients", True),
-                        website=place.get("website"),
-                        next_available=place.get("next_available"),
+                        rating=min_rating,  # Default
+                        review_count=0,
+                        phone="N/A",
+                        address=item.url,  # Use URL as fallback
+                        distance_km=0.0,
+                        accepts_new_patients=True,
+                        website=item.url,
+                        next_available=None,
                     )
                     clinics.append(clinic)
                 except Exception as e:
@@ -122,9 +141,9 @@ class ParallelService:
                     continue
 
             logger.info(f"Found {len(clinics)} clinics near location")
-            return clinics[:settings.max_clinics]
+            return clinics
 
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.error(f"Parallel.ai clinic search failed: {e}")
             return []
 
@@ -144,14 +163,13 @@ class ParallelService:
             Structured research data
         """
         try:
-            query = f"{condition_name}"
+            query = f"{condition_name} symptoms causes treatment diagnosis"
             if symptom_context:
-                query += f" symptoms: {symptom_context[:200]}"
+                query += f" patient symptoms: {symptom_context[:100]}"
 
             # Search medical literature
             results = await self.search_medical(
                 query=query,
-                sources=["pubmed", "nih", "medical_textbooks"],
                 max_results=5,
             )
 
@@ -239,8 +257,9 @@ class ParallelService:
         return ""
 
     async def close(self):
-        """Close HTTP client"""
-        await self.client.aclose()
+        """Close client connection"""
+        # Parallel SDK handles cleanup automatically
+        pass
 
 
 # Global instance

@@ -7,11 +7,18 @@ import hashlib
 from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import redis
-from redisvl.index import SearchIndex
-from redisvl.query import VectorQuery
-from redisvl.query.filter import Tag
 from loguru import logger
 from config import settings
+
+# Optional RedisVL for semantic caching
+try:
+    from redisvl.index import SearchIndex
+    from redisvl.query import VectorQuery
+    from redisvl.query.filter import Tag
+    REDISVL_AVAILABLE = True
+except ImportError:
+    REDISVL_AVAILABLE = False
+    logger.warning("RedisVL not available - semantic caching disabled")
 
 
 class RedisService:
@@ -31,6 +38,11 @@ class RedisService:
 
     def _init_semantic_cache(self):
         """Initialize RedisVL semantic cache index"""
+        if not REDISVL_AVAILABLE:
+            logger.info("RedisVL not available, semantic caching disabled")
+            self.search_index = None
+            return
+
         try:
             # Create index schema for symptom embeddings
             schema = {

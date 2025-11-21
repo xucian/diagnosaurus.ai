@@ -122,7 +122,7 @@ def check_redis():
 
     try:
         import redis
-        client = redis.Redis(host='localhost', port=6379, db=0, socket_timeout=2)
+        client = redis.Redis(host='localhost', port=6380, db=0, socket_timeout=2)
         client.ping()
         print("✓ Redis is running")
         return True

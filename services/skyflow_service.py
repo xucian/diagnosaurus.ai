@@ -1,46 +1,96 @@
 """
 Skyflow API integration for data sanitization
 Tokenizes sensitive medical information (PII/PHI) in text
+Uses Skyflow 2.0 SDK API
 """
 from typing import Dict, Any, List, Optional
 import base64
 import re
-from skyflow.vault import Client, Configuration, InsertOptions
-from skyflow.service_account import generate_bearer_token
 from loguru import logger
 from config import settings
+
+# Optional Skyflow SDK v2.x
+try:
+    from skyflow import Skyflow, Env, LogLevel
+    from skyflow.vault.data import InsertRequest
+    from skyflow.vault.tokens import DetokenizeRequest
+    from skyflow.vault.detect import DeidentifyTextRequest
+    from skyflow.utils.enums.detect_entities import DetectEntities
+    SKYFLOW_SDK_AVAILABLE = True
+except ImportError:
+    SKYFLOW_SDK_AVAILABLE = False
+    logger.warning("Skyflow SDK not available - using regex fallback only")
 
 
 class SkyflowService:
     """Skyflow data sanitization service"""
 
     def __init__(self):
-        """Initialize Skyflow client"""
+        """Initialize Skyflow client using v2.x SDK"""
+        # Check if SDK is available
+        if not SKYFLOW_SDK_AVAILABLE:
+            logger.info("Skyflow SDK not available, using regex fallback")
+            self.client = None
+            self.vault_id = None
+            return
+
         # Check if Skyflow is configured
-        if not all([settings.skyflow_vault_id, settings.skyflow_vault_url, settings.skyflow_api_key]):
+        if not all([settings.skyflow_vault_id, settings.skyflow_api_key]):
             logger.info("Skyflow not configured, using regex fallback for PII redaction")
             self.client = None
+            self.vault_id = None
             return
 
         try:
-            config = Configuration(
-                vault_id=settings.skyflow_vault_id,
-                vault_url=settings.skyflow_vault_url,
-                token_provider=self._get_token,
+            # Determine environment and cluster_id from vault URL
+            # Production format: https://<cluster_id>.vault.skyflowapis.com
+            # Preview format: https://<account_id>.vault.skyflowapis-preview.com
+            env = Env.PROD
+            cluster_id = None
+
+            if settings.skyflow_vault_url:
+                url_lower = settings.skyflow_vault_url.lower()
+                if 'skyflowapis-preview' in url_lower:
+                    env = Env.DEV  # Preview environment
+                elif 'sandbox' in url_lower:
+                    env = Env.SANDBOX
+
+                # Extract cluster_id from URL
+                # Production: https://<cluster_id>.vault.skyflowapis.com
+                # Preview: https://<cluster_id>.vault.skyflowapis-preview.com
+                parts = settings.skyflow_vault_url.replace('https://', '').split('.')
+                if len(parts) >= 2:
+                    cluster_id = parts[0]  # First part is always the cluster/account ID
+
+            # Use bearer token format (JWT token from service account)
+            credentials = {'token': settings.skyflow_api_key}
+
+            vault_config = {
+                'vault_id': settings.skyflow_vault_id,
+                'credentials': credentials,
+                'env': env
+            }
+
+            # Add cluster_id (required by Skyflow SDK)
+            if cluster_id:
+                vault_config['cluster_id'] = cluster_id
+            else:
+                raise ValueError("Could not extract cluster_id from vault URL")
+
+            self.client = (
+                Skyflow.builder()
+                .add_vault_config(vault_config)
+                .set_log_level(LogLevel.ERROR)
+                .build()
             )
-            self.client = Client(config)
-            logger.info("Skyflow service initialized successfully")
+
+            self.vault_id = settings.skyflow_vault_id
+            logger.info(f"Skyflow service initialized successfully (v2.0 SDK, env={env.value if hasattr(env, 'value') else env})")
+
         except Exception as e:
             logger.error(f"Failed to initialize Skyflow: {e}")
             self.client = None
-
-    def _get_token(self) -> str:
-        """Generate Skyflow bearer token"""
-        try:
-            return generate_bearer_token(settings.skyflow_api_key)
-        except Exception as e:
-            logger.error(f"Failed to generate Skyflow token: {e}")
-            return ""
+            self.vault_id = None
 
     def sanitize_text(self, text: str) -> str:
         """
@@ -65,10 +115,25 @@ class SkyflowService:
     def _skyflow_sanitize_text(self, text: str) -> str:
         """Use Skyflow API for text-level PII detection"""
         try:
-            # Skyflow's text redaction API (simplified - actual API may differ)
-            # For now, fall back to regex if Skyflow text API is complex
-            logger.warning("Skyflow text API not fully implemented, using regex fallback")
-            return self._regex_sanitize_text(text)
+            # Use Skyflow's deidentify_text for PII detection
+            deidentify_request = DeidentifyTextRequest(
+                text=text,
+                entities=[DetectEntities.ALL]  # Detect all PII types
+            )
+
+            response = self.client.detect(self.vault_id).deidentify_text(deidentify_request)
+
+            # Extract redacted text from response
+            if hasattr(response, 'redacted_text'):
+                logger.info("Skyflow text deidentification successful")
+                return response.redacted_text
+            elif isinstance(response, dict) and 'redacted_text' in response:
+                logger.info("Skyflow text deidentification successful")
+                return response['redacted_text']
+            else:
+                logger.warning("Skyflow response format unexpected, using regex fallback")
+                return self._regex_sanitize_text(text)
+
         except Exception as e:
             logger.error(f"Skyflow text sanitization failed: {e}")
             return self._regex_sanitize_text(text)
@@ -110,6 +175,7 @@ class SkyflowService:
         phone_patterns = [
             r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',  # XXX-XXX-XXXX
             r'\(\d{3}\)\s?\d{3}[-.\s]?\d{4}',  # (XXX) XXX-XXXX
+            r'\b\d{3}[-.\s]\d{4}\b',  # XXX-XXXX (shorter format)
         ]
         for pattern in phone_patterns:
             matches = re.findall(pattern, sanitized)
@@ -131,7 +197,7 @@ class SkyflowService:
 
     def sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Sanitize sensitive data through Skyflow tokenization
+        Sanitize sensitive data through Skyflow tokenization (v2 SDK)
 
         Args:
             data: Dictionary containing sensitive fields
@@ -139,7 +205,7 @@ class SkyflowService:
         Returns:
             Dictionary with sensitive fields tokenized
         """
-        if not self.client:
+        if not self.client or not self.vault_id:
             logger.warning("Skyflow not initialized, returning unsanitized data")
             return data
 
@@ -150,31 +216,32 @@ class SkyflowService:
             if not sensitive_fields:
                 return data
 
-            # Prepare records for tokenization
-            records = {
-                "records": [
-                    {
-                        "fields": {
-                            key: value
-                            for key, value in data.items()
-                            if key in sensitive_fields
-                        }
-                    }
-                ]
-            }
+            # Prepare data for insertion with v2 API
+            insert_data = [{
+                key: value
+                for key, value in data.items()
+                if key in sensitive_fields
+            }]
 
-            # Insert into Skyflow vault (tokenization)
-            options = InsertOptions(tokens=True)
-            response = self.client.insert(
-                records=records,
+            # Create InsertRequest with v2 SDK
+            insert_request = InsertRequest(
                 table="medical_data",
-                options=options,
+                values=insert_data,
+                return_tokens=True,
+                continue_on_error=True
             )
+
+            # Insert into vault
+            response = self.client.vault(self.vault_id).insert(insert_request)
 
             # Replace sensitive fields with tokens
             tokenized_data = data.copy()
-            if response and "records" in response:
-                tokens = response["records"][0].get("tokens", {})
+            if hasattr(response, 'records') and response.records:
+                tokens = getattr(response.records[0], 'tokens', {})
+                for field, token in tokens.items():
+                    tokenized_data[field] = token
+            elif isinstance(response, dict) and 'records' in response:
+                tokens = response['records'][0].get('tokens', {})
                 for field, token in tokens.items():
                     tokenized_data[field] = token
 
@@ -183,12 +250,11 @@ class SkyflowService:
 
         except Exception as e:
             logger.error(f"Skyflow sanitization failed: {e}")
-            # Redact sensitive fields as fallback
             return self._redact_sensitive_fields(data)
 
     def detokenize_data(self, tokenized_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Detokenize Skyflow tokens back to original values
+        Detokenize Skyflow tokens back to original values (v2 SDK)
 
         Args:
             tokenized_data: Dictionary containing Skyflow tokens
@@ -196,7 +262,7 @@ class SkyflowService:
         Returns:
             Dictionary with original values restored
         """
-        if not self.client:
+        if not self.client or not self.vault_id:
             return tokenized_data
 
         try:
@@ -206,21 +272,26 @@ class SkyflowService:
             if not token_fields:
                 return tokenized_data
 
-            # Detokenize request
-            detokenize_request = {
-                "detokenizationParameters": [
-                    {"token": tokenized_data[field]}
-                    for field in token_fields
-                ]
-            }
+            # Create detokenize request with v2 SDK
+            tokens_list = [tokenized_data[field] for field in token_fields]
 
-            response = self.client.detokenize(detokenize_request)
+            detokenize_request = DetokenizeRequest(
+                tokens=tokens_list,
+                continue_on_error=True
+            )
+
+            response = self.client.vault(self.vault_id).detokenize(detokenize_request)
 
             # Restore original values
             restored_data = tokenized_data.copy()
-            if response and "records" in response:
+            if hasattr(response, 'records') and response.records:
                 for i, field in enumerate(token_fields):
-                    restored_data[field] = response["records"][i].get("value")
+                    if i < len(response.records):
+                        restored_data[field] = getattr(response.records[i], 'value', tokenized_data[field])
+            elif isinstance(response, dict) and 'records' in response:
+                for i, field in enumerate(token_fields):
+                    if i < len(response['records']):
+                        restored_data[field] = response['records'][i].get('value', tokenized_data[field])
 
             return restored_data
 
