@@ -4,6 +4,7 @@ Multi-agent medical symptom analysis system
 """
 import asyncio
 import uuid
+import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, Response
 from flask_cors import CORS
@@ -93,14 +94,18 @@ def analyze_symptoms():
         # Initialize session
         session_data = {
             "session_id": session_id,
-            "request": analysis_request.dict(),
+            "request": analysis_request.model_dump(),
             "status": "initializing",
             "created_at": datetime.utcnow().isoformat(),
         }
         redis_service.set_session_data(session_id, session_data)
 
-        # Start analysis in background
-        asyncio.create_task(run_analysis_pipeline(session_id, analysis_request))
+        # Start analysis in background thread
+        def run_async_pipeline():
+            asyncio.run(run_analysis_pipeline(session_id, analysis_request))
+
+        thread = threading.Thread(target=run_async_pipeline, daemon=True)
+        thread.start()
 
         logger.info(f"Started analysis session: {session_id}")
 
