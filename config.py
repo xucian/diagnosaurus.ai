@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     flask_env: str = Field(default="development", env="FLASK_ENV")
     flask_debug: bool = Field(default=True, env="FLASK_DEBUG")
     secret_key: str = Field(..., env="SECRET_KEY")
-    port: int = Field(default=5000, env="PORT")
+    port: int = Field(default=5001, env="PORT")
 
     # MCP Server Configuration
     mcp_redis_enabled: bool = Field(default=True, env="MCP_REDIS_ENABLED")
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     geoip_db_path: Path = Field(default=Path(__file__).parent / "data" / "geoip.json")
 
     # Model Configuration
-    model_name: str = Field(default="claude-3-5-sonnet-20241022",
+    model_name: str = Field(default="claude-sonnet-4-5",
                            description="Anthropic model for agents")
     max_tokens: int = Field(default=4096, description="Max tokens per agent response")
     temperature: float = Field(default=0.7, description="LLM temperature")

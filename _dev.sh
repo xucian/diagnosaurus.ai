@@ -25,5 +25,6 @@ if ! docker ps | grep -q diagnosaurus-redis; then
     sleep 2
 fi
 
-echo "🦖 Starting Diagnosaurus.ai on http://localhost:5000"
+PORT=$(python -c "from config import settings; print(settings.port)" 2>/dev/null || echo "5000")
+echo "🦖 Starting Diagnosaurus.ai on http://localhost:${PORT}"
 python app.py

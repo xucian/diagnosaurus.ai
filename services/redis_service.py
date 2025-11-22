@@ -61,7 +61,9 @@ class RedisService:
                     {"name": "timestamp", "type": "numeric"},
                 ],
             }
+            # Pass Redis client to SearchIndex
             self.search_index = SearchIndex.from_dict(schema)
+            self.search_index.set_client(self.client)
             self.search_index.create(overwrite=False)
             logger.info("RedisVL semantic cache initialized")
         except Exception as e:

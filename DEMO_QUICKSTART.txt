@@ -1,0 +1,61 @@
+╔════════════════════════════════════════════════════════════╗
+║         DIAGNOSAURUS.AI - DEMO INSTRUCTIONS               ║
+╚════════════════════════════════════════════════════════════╝
+
+█ RUN THE DEMO (3 COMMANDS):
+
+    ./_dev.sh
+
+    Open browser: http://localhost:5000
+
+    Done!
+
+
+█ DEMO INPUT (Copy/Paste):
+
+    Symptoms:
+    Extreme fatigue for 3 weeks, pale skin, dizziness when
+    standing, shortness of breath, cold hands and feet
+
+    Age: 35
+    Sex: Female
+
+
+█ WHAT TO SAY WHILE IT RUNS (~30 seconds):
+
+    ✓ "Skyflow sanitizes PII/PHI for HIPAA compliance"
+    ✓ "Coarse agent identifies top 5 conditions using Claude"
+    ✓ "Deep research agents investigate in parallel batches"
+    ✓ "Adversarial forum - agents debate findings"
+    ✓ "Confidence scoring filters uncertain results"
+
+
+█ POINT OUT IN RESULTS:
+
+    • Probability bars (e.g., Iron deficiency 85%)
+    • Confidence scores (from adversarial debate)
+    • Symptom matching highlights
+    • Nearby clinics with privacy protection
+
+
+█ IF SOMETHING BREAKS:
+
+    Problem: Port already in use
+    Fix: Kill process: pkill -f "python app.py"
+
+    Problem: Redis connection failed
+    Fix: docker-compose restart
+
+    Problem: DuckDuckGo rate limited
+    Say: "LLM compensates with medical knowledge"
+
+
+█ KEY TALKING POINTS:
+
+    1. Privacy-first (Skyflow PII tokenization)
+    2. Multi-agent adversarial system
+    3. Production-ready (Redis, error handling)
+    4. Medical ethics (confidence thresholds)
+    5. Scalable (MCP architecture)
+
+╚════════════════════════════════════════════════════════════╝
