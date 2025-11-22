@@ -88,10 +88,17 @@ class RedisService:
         """Store session data in Redis with optional TTL"""
         try:
             ttl = ttl or settings.session_timeout
+
+            # Custom JSON encoder for datetime objects
+            def json_encoder(obj):
+                if hasattr(obj, 'isoformat'):
+                    return obj.isoformat()
+                raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
             self.client.setex(
                 f"session:{session_id}",
                 ttl,
-                json.dumps(data)
+                json.dumps(data, default=json_encoder)
             )
             logger.debug(f"Stored session {session_id} with TTL {ttl}s")
             return True

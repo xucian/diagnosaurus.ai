@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     mcp_parallel_enabled: bool = Field(default=True, env="MCP_PARALLEL_ENABLED")
 
     # Agent Configuration
-    # TODO: Change AGENTS_BATCH to 5 before demo for faster processing
-    max_conditions: int = Field(default=5, env="MAX_CONDITIONS",
+    # DEMO: Keep small for speed
+    max_conditions: int = Field(default=2, env="MAX_CONDITIONS",
                                 description="Maximum conditions to analyze")
     agents_batch: int = Field(default=2, env="AGENTS_BATCH",
                               description="Number of concurrent agents (increase to 5 for demo)")

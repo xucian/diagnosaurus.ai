@@ -254,7 +254,7 @@ async def run_analysis_pipeline(session_id: str, request: SymptomAnalysisRequest
             session_id,
             "completed",
             100,
-            result=analysis_response.dict(),
+            result=analysis_response.model_dump(),
         )
 
         logger.info(f"[{session_id}] Analysis complete in {processing_time}ms")
